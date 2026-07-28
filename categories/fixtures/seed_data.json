@@ -1,0 +1,46 @@
+[
+  {
+    "model": "categories.category",
+    "pk": 1,
+    "fields": {
+      "user": 1,
+      "name": "Biologia",
+      "created_at": "2026-07-28T09:00:00Z"
+    }
+  },
+  {
+    "model": "categories.category",
+    "pk": 2,
+    "fields": {
+      "user": 1,
+      "name": "Storia",
+      "created_at": "2026-07-28T09:00:00Z"
+    }
+  },
+  {
+    "model": "notions.notion",
+    "pk": 1,
+    "fields": {
+      "user": 1,
+      "category": 1,
+      "raw_content": "La mitosi è il processo di divisione cellulare che produce due cellule figlie geneticamente identiche alla cellula madre.",
+      "source_type": "manual",
+      "generation_status": "done",
+      "created_at": "2026-07-28T09:05:00Z"
+    }
+  },
+  {
+    "model": "cards.card",
+    "pk": 1,
+    "fields": {
+      "notion": 1,
+      "card_type": "atomic_qa",
+      "question": "Cos'è la mitosi?",
+      "key_points": ["divisione cellulare", "due cellule figlie", "geneticamente identiche"],
+      "next_review_at": "2026-07-29T09:00:00Z",
+      "interval_index": 1,
+      "status": "active",
+      "created_at": "2026-07-28T09:05:00Z"
+    }
+  }
+]
