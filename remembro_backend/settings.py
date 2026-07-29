@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'cards',
     'reviews',
     'authentication',
+    'ai_service'
 ]
 
 MIDDLEWARE = [
