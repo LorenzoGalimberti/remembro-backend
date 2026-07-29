@@ -27,6 +27,8 @@ class CardViewSet(
 
     def get_queryset(self):
         qs = super().get_queryset()
+        if self.action == 'due':
+            return qs
         status_param = self.request.query_params.get('status')
         if status_param:
             qs = qs.filter(status=status_param)
@@ -37,9 +39,14 @@ class CardViewSet(
         card = self.get_object()
         if card.status != Card.Status.DRAFT:
             return Response({'detail': 'Solo una bozza può essere confermata.'}, status=status.HTTP_400_BAD_REQUEST)
-        card.status = Card.Status.ACTIVE
-        card.interval_index = 1
-        card.next_review_at = timezone.now() + timedelta(days=1)
+
+        if card.card_type == Card.CardType.SYNTHESIS:
+            # La sintesi resta dormiente finché le atomiche collegate non maturano (spec 5.3)
+            card.status = Card.Status.DORMANT
+        else:
+            card.status = Card.Status.ACTIVE
+            card.interval_index = 1
+            card.next_review_at = timezone.now() + timedelta(days=1)
         card.save()
         return Response(CardSerializer(card).data)
 
@@ -63,3 +70,15 @@ class CardViewSet(
             {'detail': 'Rigenerazione avviata.'},
             status=status.HTTP_202_ACCEPTED,
         )
+
+    @action(detail=False, methods=['get'])
+    def due(self, request):
+        qs = self.get_queryset().filter(
+            status=Card.Status.ACTIVE,
+            next_review_at__lte=timezone.now(),
+        )
+        category_id = request.query_params.get('category')
+        if category_id:
+            qs = qs.filter(notion__category_id=category_id)
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
