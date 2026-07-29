@@ -43,7 +43,8 @@ INSTALLED_APPS = [
     'cards',
     'reviews',
     'authentication',
-    'ai_service'
+    'ai_service',
+    'push_notifications',
 ]
 
 MIDDLEWARE = [
@@ -155,3 +156,13 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "UTC"
+
+
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    "send-due-review-notifications-hourly": {
+        "task": "push_notifications.tasks.send_due_review_notifications",
+        "schedule": crontab(minute=0),
+    },
+}

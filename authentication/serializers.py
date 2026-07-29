@@ -2,6 +2,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
+from .models import NotificationSettings
+
 User = get_user_model()
 
 
@@ -22,3 +24,9 @@ class RegisterSerializer(serializers.ModelSerializer):
             password=validated_data['password'],
         )
         return user
+
+
+class NotificationSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NotificationSettings
+        fields = ['timezone', 'preferred_time', 'expo_push_token']
