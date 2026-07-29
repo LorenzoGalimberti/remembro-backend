@@ -15,3 +15,8 @@ class NotificationSettings(models.Model):
 
     def __str__(self):
         return f'{self.user} — {self.timezone} @ {self.preferred_time}'
+
+
+def get_user_timezone(user) -> str:
+    settings_obj = getattr(user, 'notification_settings', None)
+    return settings_obj.timezone if settings_obj else 'UTC'

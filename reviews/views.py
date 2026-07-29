@@ -1,12 +1,15 @@
+from decouple import config
 from rest_framework import mixins, permissions, viewsets
+from rest_framework import status as http_status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
-from rest_framework import status as http_status
 
 from ai_service.agents.evaluation import EvaluationAgent
 from ai_service.exceptions import AIServiceError
 from ai_service.providers import get_default_provider
+from ai_service.rate_limit import RateLimitExceeded, check_and_increment
 from authentication.mixins import UserFilteredQuerysetMixin
+from authentication.models import get_user_timezone
 from authentication.permissions import IsOwner
 from cards.models import Card
 from cards.scheduling import activate_synthesis_if_ready, apply_verdict
@@ -40,6 +43,16 @@ class ReviewViewSet(
             raise PermissionDenied('Card non accessibile.')
         if card.status != Card.Status.ACTIVE:
             raise ValidationError({'card': 'Solo le card attive possono essere ripassate.'})
+
+        try:
+            check_and_increment(
+                user_id=request.user.id,
+                kind='evaluation',
+                limit=config('RATE_LIMIT_EVALUATIONS_PER_DAY', default=50, cast=int),
+                user_timezone=get_user_timezone(request.user),
+            )
+        except RateLimitExceeded as exc:
+            return Response({'detail': str(exc)}, status=http_status.HTTP_429_TOO_MANY_REQUESTS)
 
         answer_text = input_serializer.validated_data['answer_text']
 

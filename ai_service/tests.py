@@ -1,7 +1,9 @@
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
+
+from .rate_limit import RateLimitExceeded, check_and_increment
 
 from .agents.evaluation import EvaluationAgent
 from .agents.generation import GenerationAgent
@@ -134,3 +136,74 @@ class EvaluationAgentTests(SimpleTestCase):
 
         with self.assertRaises(AIServiceError):
             agent.evaluate(question="?", key_points=["a", "b"], user_answer="x")
+
+
+class _FakePipeline:
+    def __init__(self, store):
+        self.store = store
+        self._ops = []
+
+    def incr(self, key):
+        self._ops.append(("incr", key))
+        return self
+
+    def expire(self, key, seconds):
+        self._ops.append(("expire", key, seconds))
+        return self
+
+    def execute(self):
+        for op in self._ops:
+            if op[0] == "incr":
+                self.store[op[1]] = self.store.get(op[1], 0) + 1
+        self._ops = []
+
+
+class FakeRedis:
+    def __init__(self):
+        self.store = {}
+
+    def get(self, key):
+        value = self.store.get(key)
+        return str(value).encode() if value is not None else None
+
+    def pipeline(self):
+        return _FakePipeline(self.store)
+
+
+class CheckAndIncrementTests(SimpleTestCase):
+    def setUp(self):
+        self.fake_redis = FakeRedis()
+        patcher = patch("ai_service.rate_limit.get_redis_client", return_value=self.fake_redis)
+        self.addCleanup(patcher.stop)
+        patcher.start()
+
+    def test_allows_up_to_limit_then_raises(self):
+        check_and_increment(user_id=1, kind="generation", limit=2, user_timezone="UTC")
+        check_and_increment(user_id=1, kind="generation", limit=2, user_timezone="UTC")
+        with self.assertRaises(RateLimitExceeded):
+            check_and_increment(user_id=1, kind="generation", limit=2, user_timezone="UTC")
+
+    def test_different_users_have_independent_counters(self):
+        check_and_increment(user_id=1, kind="generation", limit=1, user_timezone="UTC")
+        # utente diverso, non deve essere influenzato dal contatore di user 1
+        check_and_increment(user_id=2, kind="generation", limit=1, user_timezone="UTC")
+        with self.assertRaises(RateLimitExceeded):
+            check_and_increment(user_id=1, kind="generation", limit=1, user_timezone="UTC")
+
+    def test_different_kinds_have_independent_counters(self):
+        check_and_increment(user_id=1, kind="generation", limit=1, user_timezone="UTC")
+        # 'evaluation' non deve risentire del contatore 'generation'
+        check_and_increment(user_id=1, kind="evaluation", limit=1, user_timezone="UTC")
+        with self.assertRaises(RateLimitExceeded):
+            check_and_increment(user_id=1, kind="evaluation", limit=1, user_timezone="UTC")
+
+    @patch("ai_service.rate_limit.config")
+    def test_bypassed_when_rate_limit_disabled(self, mock_config):
+        mock_config.return_value = False
+        # anche con limit=0 non deve mai sollevare, il controllo è disattivato
+        check_and_increment(user_id=1, kind="generation", limit=0, user_timezone="UTC")
+        check_and_increment(user_id=1, kind="generation", limit=0, user_timezone="UTC")
+
+    def test_invalid_timezone_falls_back_to_utc(self):
+        # non deve sollevare ZoneInfoNotFoundError, deve usare UTC come fallback
+        check_and_increment(user_id=1, kind="generation", limit=5, user_timezone="Not/AZone")

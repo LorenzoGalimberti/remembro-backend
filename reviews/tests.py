@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
 from ai_service.exceptions import AIServiceError
+from ai_service.rate_limit import RateLimitExceeded
 from cards.models import Card
 from categories.models import Category
 from notions.models import Notion
@@ -27,9 +28,10 @@ class ReviewSubmitTests(APITestCase):
             status=Card.Status.ACTIVE, interval_index=1,
         )
 
+    @patch('reviews.views.check_and_increment')
     @patch('reviews.views.get_default_provider', return_value=MagicMock())
     @patch('reviews.views.EvaluationAgent')
-    def test_submit_review_correct(self, mock_agent_cls, mock_provider):
+    def test_submit_review_correct(self, mock_agent_cls, mock_provider, mock_rate_limit):
         mock_agent_cls.return_value.evaluate.return_value = {
             'verdict': 'correct', 'missing_points': [], 'feedback': 'bravo',
         }
@@ -43,10 +45,12 @@ class ReviewSubmitTests(APITestCase):
         self.card.refresh_from_db()
         self.assertEqual(self.card.interval_index, 2)
         self.assertEqual(ReviewLog.objects.count(), 1)
+        mock_rate_limit.assert_called_once()
 
+    @patch('reviews.views.check_and_increment')
     @patch('reviews.views.get_default_provider', return_value=MagicMock())
     @patch('reviews.views.EvaluationAgent')
-    def test_review_on_draft_card_rejected(self, mock_agent_cls, mock_provider):
+    def test_review_on_draft_card_rejected(self, mock_agent_cls, mock_provider, mock_rate_limit):
         self.card.status = Card.Status.DRAFT
         self.card.save()
 
@@ -57,9 +61,10 @@ class ReviewSubmitTests(APITestCase):
         self.assertEqual(response.status_code, 400)
         mock_agent_cls.return_value.evaluate.assert_not_called()
 
+    @patch('reviews.views.check_and_increment')
     @patch('reviews.views.get_default_provider', return_value=MagicMock())
     @patch('reviews.views.EvaluationAgent')
-    def test_review_on_other_users_card_forbidden(self, mock_agent_cls, mock_provider):
+    def test_review_on_other_users_card_forbidden(self, mock_agent_cls, mock_provider, mock_rate_limit):
         self.client.force_authenticate(self.other_user)
 
         response = self.client.post('/api/reviews/', {
@@ -68,9 +73,10 @@ class ReviewSubmitTests(APITestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    @patch('reviews.views.check_and_increment')
     @patch('reviews.views.get_default_provider', return_value=MagicMock())
     @patch('reviews.views.EvaluationAgent')
-    def test_ai_service_error_returns_502(self, mock_agent_cls, mock_provider):
+    def test_ai_service_error_returns_502(self, mock_agent_cls, mock_provider, mock_rate_limit):
         mock_agent_cls.return_value.evaluate.side_effect = AIServiceError('boom')
 
         response = self.client.post('/api/reviews/', {
@@ -78,5 +84,20 @@ class ReviewSubmitTests(APITestCase):
         })
 
         self.assertEqual(response.status_code, 502)
+        self.card.refresh_from_db()
+        self.assertEqual(self.card.interval_index, 1)
+
+    @patch('reviews.views.check_and_increment')
+    @patch('reviews.views.get_default_provider', return_value=MagicMock())
+    @patch('reviews.views.EvaluationAgent')
+    def test_rate_limit_exceeded_returns_429(self, mock_agent_cls, mock_provider, mock_rate_limit):
+        mock_rate_limit.side_effect = RateLimitExceeded('evaluation', 50)
+
+        response = self.client.post('/api/reviews/', {
+            'card': self.card.id, 'answer_text': 'risposta',
+        })
+
+        self.assertEqual(response.status_code, 429)
+        mock_agent_cls.return_value.evaluate.assert_not_called()
         self.card.refresh_from_db()
         self.assertEqual(self.card.interval_index, 1)

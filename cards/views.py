@@ -1,11 +1,14 @@
 from datetime import timedelta
 
+from decouple import config
 from django.utils import timezone
 from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from ai_service.rate_limit import RateLimitExceeded, check_and_increment
 from authentication.mixins import UserFilteredQuerysetMixin
+from authentication.models import get_user_timezone
 from authentication.permissions import IsOwner
 from notions.tasks import generate_cards_from_notion
 
@@ -41,7 +44,6 @@ class CardViewSet(
             return Response({'detail': 'Solo una bozza può essere confermata.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if card.card_type == Card.CardType.SYNTHESIS:
-            # La sintesi resta dormiente finché le atomiche collegate non maturano (spec 5.3)
             card.status = Card.Status.DORMANT
         else:
             card.status = Card.Status.ACTIVE
@@ -62,6 +64,17 @@ class CardViewSet(
     def regenerate(self, request, pk=None):
         card = self.get_object()
         notion = card.notion
+
+        try:
+            check_and_increment(
+                user_id=request.user.id,
+                kind='generation',
+                limit=config('RATE_LIMIT_GENERATIONS_PER_DAY', default=20, cast=int),
+                user_timezone=get_user_timezone(request.user),
+            )
+        except RateLimitExceeded as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
         notion.cards.all().delete()
         notion.generation_status = notion.GenerationStatus.PENDING
         notion.save(update_fields=['generation_status'])
