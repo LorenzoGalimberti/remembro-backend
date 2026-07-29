@@ -7,6 +7,8 @@ from rest_framework.response import Response
 
 from authentication.mixins import UserFilteredQuerysetMixin
 from authentication.permissions import IsOwner
+from notions.tasks import generate_cards_from_notion
+
 from .models import Card
 from .serializers import CardSerializer
 
@@ -53,12 +55,11 @@ class CardViewSet(
     def regenerate(self, request, pk=None):
         card = self.get_object()
         notion = card.notion
-        card.delete()
+        notion.cards.all().delete()
         notion.generation_status = notion.GenerationStatus.PENDING
         notion.save(update_fields=['generation_status'])
-        # TODO Fase 5: agganciare qui il trigger reale della generazione
-        # (generate_cards_from_notion(notion.id)) che ricreerà le card.
+        generate_cards_from_notion.delay(notion.id)
         return Response(
-            {'detail': 'Card cancellata, rigenerazione da innescare in Fase 5.'},
+            {'detail': 'Rigenerazione avviata.'},
             status=status.HTTP_202_ACCEPTED,
         )

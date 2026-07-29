@@ -147,3 +147,11 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'API backend per Remembro — cattura, generazione e ripasso di nozioni.',
     'VERSION': '1.0.0',
 }
+
+
+CELERY_BROKER_URL = config("REDIS_URL")
+CELERY_RESULT_BACKEND = config("REDIS_URL")
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "UTC"
