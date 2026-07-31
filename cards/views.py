@@ -1,3 +1,11 @@
+"""
+Sostituisce interamente: remembro-backend/cards/views.py
+
+Unica modifica: get_queryset ora supporta anche ?notion=<id>, stesso
+pattern già usato per ?status=. Serve al mobile per chiedere solo le
+card di una specifica nozione (schermata di dettaglio, fase 11).
+"""
+
 from datetime import timedelta
 
 from decouple import config
@@ -35,6 +43,9 @@ class CardViewSet(
         status_param = self.request.query_params.get('status')
         if status_param:
             qs = qs.filter(status=status_param)
+        notion_param = self.request.query_params.get('notion')
+        if notion_param:
+            qs = qs.filter(notion_id=notion_param)
         return qs
 
     @action(detail=True, methods=['post'])
@@ -42,7 +53,6 @@ class CardViewSet(
         card = self.get_object()
         if card.status != Card.Status.DRAFT:
             return Response({'detail': 'Solo una bozza può essere confermata.'}, status=status.HTTP_400_BAD_REQUEST)
-
         if card.card_type == Card.CardType.SYNTHESIS:
             card.status = Card.Status.DORMANT
         else:
@@ -64,7 +74,6 @@ class CardViewSet(
     def regenerate(self, request, pk=None):
         card = self.get_object()
         notion = card.notion
-
         try:
             check_and_increment(
                 user_id=request.user.id,
@@ -74,7 +83,6 @@ class CardViewSet(
             )
         except RateLimitExceeded as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-
         notion.cards.all().delete()
         notion.generation_status = notion.GenerationStatus.PENDING
         notion.save(update_fields=['generation_status'])

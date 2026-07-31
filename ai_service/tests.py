@@ -1,3 +1,11 @@
+"""
+Sostituisce interamente: remembro-backend/ai_service/tests.py
+
+Rispetto all'originale: aggiunto l'import di ChatAgent in cima, e
+aggiunta la classe ChatAgentTests in fondo (dopo CheckAndIncrementTests).
+Tutto il resto è identico a quello che avevi già.
+"""
+
 import json
 from unittest.mock import MagicMock, patch
 
@@ -7,6 +15,7 @@ from .rate_limit import RateLimitExceeded, check_and_increment
 
 from .agents.evaluation import EvaluationAgent
 from .agents.generation import GenerationAgent
+from .chat_agent import ChatAgent
 from .exceptions import AIServiceError
 
 
@@ -136,6 +145,55 @@ class EvaluationAgentTests(SimpleTestCase):
 
         with self.assertRaises(AIServiceError):
             agent.evaluate(question="?", key_points=["a", "b"], user_answer="x")
+
+
+class ChatAgentTests(SimpleTestCase):
+    def test_success_first_attempt(self):
+        provider = make_provider("La fotosintesi converte luce in energia chimica.")
+        agent = ChatAgent(provider)
+
+        reply = agent.reply("Cos'è la fotosintesi?")
+
+        self.assertEqual(reply, "La fotosintesi converte luce in energia chimica.")
+        self.assertEqual(provider.complete.call_count, 1)
+        _, kwargs = provider.complete.call_args
+        self.assertFalse(kwargs.get("json_mode", True))
+
+    def test_retries_once_after_empty_reply_then_succeeds(self):
+        provider = make_provider("   ", "Ecco la risposta vera.")
+        agent = ChatAgent(provider)
+
+        reply = agent.reply("Domanda")
+
+        self.assertEqual(reply, "Ecco la risposta vera.")
+        self.assertEqual(provider.complete.call_count, 2)
+
+    def test_retries_once_after_exception_then_succeeds(self):
+        provider = make_provider(RuntimeError("timeout"), "Risposta ok")
+        agent = ChatAgent(provider)
+
+        reply = agent.reply("Domanda")
+
+        self.assertEqual(reply, "Risposta ok")
+        self.assertEqual(provider.complete.call_count, 2)
+
+    def test_fails_after_two_exceptions(self):
+        provider = make_provider(RuntimeError("timeout"), RuntimeError("timeout"))
+        agent = ChatAgent(provider)
+
+        with self.assertRaises(AIServiceError):
+            agent.reply("Domanda")
+
+        self.assertEqual(provider.complete.call_count, 2)
+
+    def test_fails_after_two_empty_replies(self):
+        provider = make_provider("   ", "")
+        agent = ChatAgent(provider)
+
+        with self.assertRaises(AIServiceError):
+            agent.reply("Domanda")
+
+        self.assertEqual(provider.complete.call_count, 2)
 
 
 class _FakePipeline:
