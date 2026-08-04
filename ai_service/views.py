@@ -1,12 +1,10 @@
 """
 Sostituisce interamente: remembro-backend/ai_service/views.py
-(oggi contiene solo lo stub generato da Django, `render` non serve).
 
-Stesso pattern di NotionViewSet.create(): controllo rate limit prima
-di chiamare l'AI (429 se superato), poi validazione input col
-serializer, poi chiamata all'agente con gestione esplicita
-dell'errore (502 se il provider fallisce dopo il retry — nessun
-fallback silenzioso).
+Aggiunta: dopo una risposta chat riuscita, salva una riga in
+AIUsageLog leggendo provider.last_usage. Per poterlo leggere, il
+provider ora si crea come variabile a parte invece che inline dentro
+ChatAgent(...).
 """
 
 from decouple import config
@@ -18,6 +16,7 @@ from authentication.models import get_user_timezone
 
 from .chat_agent import ChatAgent
 from .exceptions import AIServiceError
+from .models import AIUsageLog
 from .providers import get_default_provider
 from .rate_limit import RateLimitExceeded, check_and_increment
 from .serializers import ChatRequestSerializer, ChatResponseSerializer
@@ -40,11 +39,23 @@ class ChatView(APIView):
         request_serializer = ChatRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
 
-        agent = ChatAgent(provider=get_default_provider())
+        provider = get_default_provider()
+        agent = ChatAgent(provider=provider)
         try:
             reply_text = agent.reply(request_serializer.validated_data['message'])
         except AIServiceError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if provider.last_usage:
+            AIUsageLog.objects.create(
+                user=request.user,
+                call_type=AIUsageLog.CallType.CHAT,
+                model=provider.last_usage['model'],
+                prompt_tokens=provider.last_usage['prompt_tokens'],
+                completion_tokens=provider.last_usage['completion_tokens'],
+                reasoning_tokens=provider.last_usage['reasoning_tokens'],
+                total_tokens=provider.last_usage['total_tokens'],
+            )
 
         response_serializer = ChatResponseSerializer({'reply': reply_text})
         return Response(response_serializer.data, status=status.HTTP_200_OK)

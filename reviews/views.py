@@ -1,3 +1,11 @@
+"""
+Sostituisce interamente: remembro-backend/reviews/views.py
+
+Aggiunta: dopo una valutazione riuscita, salva una riga in AIUsageLog
+leggendo provider.last_usage (provider era già una variabile a parte,
+qui non serve nessun altro cambiamento strutturale).
+"""
+
 from decouple import config
 from rest_framework import mixins, permissions, viewsets
 from rest_framework import status as http_status
@@ -6,6 +14,7 @@ from rest_framework.response import Response
 
 from ai_service.agents.evaluation import EvaluationAgent
 from ai_service.exceptions import AIServiceError
+from ai_service.models import AIUsageLog
 from ai_service.providers import get_default_provider
 from ai_service.rate_limit import RateLimitExceeded, check_and_increment
 from authentication.mixins import UserFilteredQuerysetMixin
@@ -37,8 +46,8 @@ class ReviewViewSet(
     def create(self, request, *args, **kwargs):
         input_serializer = self.get_serializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
-        card = input_serializer.validated_data['card']
 
+        card = input_serializer.validated_data['card']
         if card.notion.user_id != request.user.id:
             raise PermissionDenied('Card non accessibile.')
         if card.status != Card.Status.ACTIVE:
@@ -55,7 +64,6 @@ class ReviewViewSet(
             return Response({'detail': str(exc)}, status=http_status.HTTP_429_TOO_MANY_REQUESTS)
 
         answer_text = input_serializer.validated_data['answer_text']
-
         provider = get_default_provider()
         agent = EvaluationAgent(provider)
         try:
@@ -70,8 +78,18 @@ class ReviewViewSet(
                 status=http_status.HTTP_502_BAD_GATEWAY,
             )
 
-        interval_before, interval_after = apply_verdict(card, result['verdict'])
+        if provider.last_usage:
+            AIUsageLog.objects.create(
+                user=request.user,
+                call_type=AIUsageLog.CallType.EVALUATION,
+                model=provider.last_usage['model'],
+                prompt_tokens=provider.last_usage['prompt_tokens'],
+                completion_tokens=provider.last_usage['completion_tokens'],
+                reasoning_tokens=provider.last_usage['reasoning_tokens'],
+                total_tokens=provider.last_usage['total_tokens'],
+            )
 
+        interval_before, interval_after = apply_verdict(card, result['verdict'])
         review_log = ReviewLog.objects.create(
             card=card,
             user=request.user,
@@ -81,7 +99,6 @@ class ReviewViewSet(
             interval_before=interval_before,
             interval_after=interval_after,
         )
-
         activate_synthesis_if_ready(card.notion)
 
         output = ReviewLogSerializer(review_log).data
