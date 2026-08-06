@@ -1,3 +1,13 @@
+"""
+Sostituisce interamente: remembro-backend/push_notifications/tasks.py
+
+Aggiunta: quando la notifica riguarda una sola categoria, viene
+passato anche il suo id nel campo "data" della notifica (usato dal
+mobile per il deep link). Se le card scadute appartengono a più
+categorie, niente id — la notifica resta aggregata e il tap apre il
+ripasso senza filtro, come oggi.
+"""
+
 import logging
 from collections import defaultdict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -41,15 +51,20 @@ def send_due_review_notifications():
             continue
 
         counts = defaultdict(int)
+        category_ids = {}
         for card in due_cards:
-            counts[card.notion.category.name] += 1
+            category = card.notion.category
+            counts[category.name] += 1
+            category_ids[category.name] = category.id
 
         if len(counts) == 1:
             category_name, count = next(iter(counts.items()))
             body = f"Hai {count} nozioni di {category_name} da ripassare"
+            data = {"category_id": category_ids[category_name]}
         else:
             total = sum(counts.values())
             parts = ", ".join(f"{n} di {cat}" for cat, n in counts.items())
             body = f"Hai {total} nozioni da ripassare ({parts})"
+            data = None
 
-        send_expo_push(token=settings_obj.expo_push_token, title="Remembro", body=body)
+        send_expo_push(token=settings_obj.expo_push_token, title="Remembro", body=body, data=data)
