@@ -1,11 +1,16 @@
 """
 Sostituisce interamente: remembro-backend/reviews/views.py
 
-Aggiunta: dopo una valutazione riuscita, salva una riga in AIUsageLog
-leggendo provider.last_usage (provider era già una variabile a parte,
-qui non serve nessun altro cambiamento strutturale).
-"""
+Aggiunta (Fase 8): dopo una valutazione riuscita, salva una riga in AIUsageLog
+leggendo provider.last_usage (provider era già una variabile a parte, qui non
+serve nessun altro cambiamento strutturale).
 
+Aggiunta (Fase 14 — Metriche e analytics): prima di chiamare apply_verdict
+(che aggiorna Card.next_review_at con il nuovo intervallo), legge il valore
+corrente di next_review_at e lo salva come ReviewLog.due_at — è la scadenza
+prevista PRIMA di questo ripasso, serve per calcolare la retention del
+ripasso (reviewed_at <= due_at).
+"""
 from decouple import config
 from rest_framework import mixins, permissions, viewsets
 from rest_framework import status as http_status
@@ -46,8 +51,8 @@ class ReviewViewSet(
     def create(self, request, *args, **kwargs):
         input_serializer = self.get_serializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
-
         card = input_serializer.validated_data['card']
+
         if card.notion.user_id != request.user.id:
             raise PermissionDenied('Card non accessibile.')
         if card.status != Card.Status.ACTIVE:
@@ -89,6 +94,7 @@ class ReviewViewSet(
                 total_tokens=provider.last_usage['total_tokens'],
             )
 
+        due_at = card.next_review_at
         interval_before, interval_after = apply_verdict(card, result['verdict'])
         review_log = ReviewLog.objects.create(
             card=card,
@@ -98,6 +104,7 @@ class ReviewViewSet(
             feedback_text=result.get('feedback', ''),
             interval_before=interval_before,
             interval_after=interval_after,
+            due_at=due_at,
         )
         activate_synthesis_if_ready(card.notion)
 

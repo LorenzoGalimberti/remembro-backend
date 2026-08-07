@@ -1,0 +1,33 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<h1>Metriche Remembro</h1>
+
+<h2>Retention del ripasso (ultimi 30 giorni)</h2>
+<table>
+  <tr><th>Ripassi totali</th><td>{{ total_reviews_30d }}</td></tr>
+  <tr><th>Ripassi in finestra prevista</th><td>{{ on_time_reviews_30d }}</td></tr>
+  <tr>
+    <th>% in finestra</th>
+    <td>{% if review_retention_pct is not None %}{{ review_retention_pct }}%{% else %}n/d{% endif %}</td>
+  </tr>
+</table>
+
+<h2>Frequenza di cattura</h2>
+<table>
+  <tr><th>Nozioni salvate questa settimana</th><td>{{ notions_this_week }}</td></tr>
+  <tr><th>Nozioni salvate settimana scorsa</th><td>{{ notions_last_week }}</td></tr>
+</table>
+
+<h2>Retention D7 / D30</h2>
+<table>
+  <tr>
+    <th>D7</th>
+    <td>{% if retention_d7 is not None %}{{ retention_d7 }}%{% else %}n/d (nessun utente con almeno 7 giorni){% endif %}</td>
+  </tr>
+  <tr>
+    <th>D30</th>
+    <td>{% if retention_d30 is not None %}{{ retention_d30 }}%{% else %}n/d (nessun utente con almeno 30 giorni){% endif %}</td>
+  </tr>
+</table>
+{% endblock %}
