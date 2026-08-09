@@ -57,4 +57,3 @@ class EvaluationAgent(BaseAgent):
             raise ValueError("'missing_points' deve essere una lista")
         if not data.get("feedback"):
             raise ValueError("'feedback' mancante")
-
