@@ -3,6 +3,34 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: remembro_test
+          POSTGRES_USER: remembro
+          POSTGRES_PASSWORD: remembro_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://remembro:remembro_test_password@localhost:5432/remembro_test
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: ci-test-secret-key-non-usata-in-produzione
+      DEBUG: "False"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -11,3 +39,4 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pip install flake8
       - run: flake8 . --max-line-length=120 --exclude=venv,migrations
+      - run: python manage.py test
