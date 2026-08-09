@@ -93,6 +93,26 @@ class GenerationAgentTests(SimpleTestCase):
         with self.assertRaises(AIServiceError):
             agent.generate(raw_content="testo", category_name="Categoria")
 
+    def test_truncates_excess_key_points(self):
+        """Piu' di 5 key_points vengono troncati invece di far fallire la generazione.
+
+        Fase 15: sul set di validazione reale questo caso causava retry e
+        fallimenti su contenuti con molti elementi elencabili.
+        """
+        response = json.dumps({
+            "cards": [{
+                "type": "atomic_qa",
+                "question": "?",
+                "key_points": ["a", "b", "c", "d", "e", "f", "g"],
+            }]
+        })
+        provider = make_provider(response)
+        agent = GenerationAgent(provider)
+        cards = agent.generate(raw_content="testo", category_name="Categoria")
+        self.assertEqual(cards[0]["key_points"], ["a", "b", "c", "d", "e"])
+        # una sola chiamata: il troncamento evita il retry
+        self.assertEqual(provider.complete.call_count, 1)
+
 
 class EvaluationAgentTests(SimpleTestCase):
     def test_success_first_attempt(self):

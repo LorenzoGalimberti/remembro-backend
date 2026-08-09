@@ -54,8 +54,14 @@ class NotionAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_list_only_own_notions(self):
-        Notion.objects.create(user=self.user1, category=self.category1, raw_content='Testo lungo abbastanza per validare bene.')
-        Notion.objects.create(user=self.user2, category=self.category2, raw_content='Altro testo lungo abbastanza per validare.')
+        Notion.objects.create(
+            user=self.user1, category=self.category1,
+            raw_content='Testo lungo abbastanza per validare bene.',
+        )
+        Notion.objects.create(
+            user=self.user2, category=self.category2,
+            raw_content='Altro testo lungo abbastanza per validare.',
+        )
         self.client.force_authenticate(self.user1)
         response = self.client.get('/api/notions/')
         self.assertEqual(len(response.data), 1)

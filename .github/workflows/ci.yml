@@ -38,5 +38,5 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt
       - run: pip install flake8
-      - run: flake8 . --max-line-length=120 --exclude=venv,migrations
+      - run: flake8 .
       - run: python manage.py test
