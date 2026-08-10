@@ -1,17 +1,22 @@
 """
 Sostituisce interamente: remembro-backend/notions/tasks.py
 
-Aggiunta rispetto alla versione con attivazione automatica: dopo una
-generazione riuscita, salva una riga in AIUsageLog (user preso da
-notion.user, dato che qui non c'è una request diretta essendo un task
-Celery asincrono).
-"""
+Fase 15/16 — ripristinato il flusso bozza+conferma previsto dalla spec
+(Fase 5 e Fase 10 del piano): le card generate tornano a nascere
+`draft` invece di `active`/`dormant` come nella versione precedente
+("attivazione automatica"). L'attivazione ora avviene solo tramite
+CardViewSet.confirm() (cards/views.py, già esistente e testato), che
+per le card atomiche imposta interval_index=1 e next_review_at, e per
+la sintesi imposta 'dormant' (resta in attesa finché le atomiche
+collegate non completano un ciclo, gestito da cards/scheduling.py).
 
+Motivo del ripristino: senza fase di bozza, un utente non aveva modo
+di scartare una card generata male (es. input che non era una vera
+nozione di studio) se non chiedendo un intervento manuale sul database.
+"""
 import logging
-from datetime import timedelta
 
 from celery import shared_task
-from django.utils import timezone
 
 from ai_service.agents.generation import GenerationAgent
 from ai_service.exceptions import AIServiceError
@@ -34,7 +39,6 @@ def generate_cards_from_notion(notion_id: int) -> None:
 
     provider = get_default_provider()
     agent = GenerationAgent(provider)
-
     try:
         cards_data = agent.generate(
             raw_content=notion.raw_content,
@@ -57,28 +61,16 @@ def generate_cards_from_notion(notion_id: int) -> None:
             total_tokens=provider.last_usage["total_tokens"],
         )
 
-    now = timezone.now()
-    cards = []
-    for card in cards_data:
-        if card["type"] == Card.CardType.SYNTHESIS:
-            cards.append(Card(
-                notion=notion,
-                card_type=card["type"],
-                question=card["question"],
-                key_points=card["key_points"],
-                status=Card.Status.DORMANT,
-            ))
-        else:
-            cards.append(Card(
-                notion=notion,
-                card_type=card["type"],
-                question=card["question"],
-                key_points=card["key_points"],
-                status=Card.Status.ACTIVE,
-                interval_index=1,
-                next_review_at=now + timedelta(days=1),
-            ))
-
+    cards = [
+        Card(
+            notion=notion,
+            card_type=card["type"],
+            question=card["question"],
+            key_points=card["key_points"],
+            status=Card.Status.DRAFT,
+        )
+        for card in cards_data
+    ]
     Card.objects.bulk_create(cards)
 
     notion.generation_status = Notion.GenerationStatus.DONE
